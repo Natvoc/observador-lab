@@ -1,0 +1,17 @@
+# Documentos internos de planificacion (no publicos)
+PROYECTO.md
+TAREAS.md
+
+# Entorno virtual de Python
+venv/
+.venv/
+
+# Cache de Python
+__pycache__/
+*.pyc
+
+# Cache de modelos descargados (HuggingFace) si se ubica dentro del repo
+.cache/
+
+# Archivos de entorno / configuracion local
+.env
