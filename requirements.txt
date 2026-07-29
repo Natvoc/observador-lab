@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch
+transformer_lens
+# Version fijada: transformers>5.9.0 renombra un atributo interno de GPTNeoX
+# (embed_out -> lm_head) que rompe la carga de Pythia via transformer_lens 3.6.0.
+transformers==5.9.0
+gradio
+plotly
+circuitsvis
