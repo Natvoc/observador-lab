@@ -15,3 +15,6 @@ __pycache__/
 
 # Archivos de entorno / configuracion local
 .env
+
+# Visualizaciones HTML generadas por los scripts de experimentos
+outputs/
