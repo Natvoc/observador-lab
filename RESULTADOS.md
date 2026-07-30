@@ -1,11 +1,15 @@
 # Resultados — observador-lab
 
-Este documento consolida los experimentos de las Fases 1 y 2: interpretabilidad
+Este documento consolida los experimentos de las Fases 1, 2 y 6: interpretabilidad
 mecanicista sobre GPT-2 small, Pythia 70M y Pythia 160M, aplicada a una tarea de
 correferencia ambigua tipo Winograd. Todo lo que sigue vale **únicamente para estos
 modelos, en este rango de 70 a 160 millones de parámetros**. No se generaliza a
 modelos de lenguaje grandes (GPT-4, Claude u otros), ni se afirma nada sobre "los
 LLMs" en general.
+
+*(La Fase 6 se adelantó antes que la Fase 5 porque extiende directamente el
+hallazgo de ablation de la Fase 1, en vez de abrir una línea nueva — ver
+`TAREAS.md`.)*
 
 ## 1. La tarea semilla
 
@@ -183,21 +187,130 @@ produjo un auto-reporte genuinamente coherente, mostró jamás indicio del sesgo
 posicional que la ablation causal confirmó como mecanismo real (al menos en Pythia
 70M y GPT-2 small).
 
-## 8. Limitaciones
+## 9. Fase 6: activation patching cruzado — dos mecanismos causales desenredados
 
-- **Tamaño de muestra chico**: 8 oraciones para el análisis de atención agregada;
-  solo 3 (trophy_suitcase, car_truck, man_couch) para el análisis causal y los
+La ablation de la Fase 1 mostró *que* la cabeza (0,2) tiene efecto causal, pero no
+si el adjetivo mismo llega a usarse en algún punto de la red. El activation
+patching cruzado (transplantar activaciones entre las dos variantes de una
+oración) responde esa pregunta, y además permite separar dos mecanismos que
+conviven en la misma capa.
+
+### 9.1 El adjetivo sí tiene efecto causal — pero no el que se esperaría
+
+Se transplantó el residual stream completo (`resid_post`) en la posición del
+adjetivo desambiguador, de una variante hacia la otra, capa por capa, en
+trophy_suitcase, car_truck y man_couch, en GPT-2 small y Pythia 70M.
+
+El efecto es real y grande, concentrado en las primeras capas de cada red y cae a
+cero hacia la mitad (capa 4 de 6 en Pythia 70M; capa 9–11 de 12 en GPT-2 small).
+Esto ya refuta que el adjetivo "nunca se use en absoluto". Pero el patrón exacto
+es revelador. Ejemplo (GPT-2 small, trophy_suitcase, capa 0):
+
+| Corrida | Margen natural (propio) |
+|---|---|
+| "big" sola | +2.68 (favorece trophy) |
+| "small" sola | +3.41 (relativo a trophy — también favorece trophy, aunque ahí sea incorrecto) |
+| Parche "big" → "small" | **+2.66** |
+| Parche "small" → "big" | **+3.42** |
+
+El valor después de parchar no converge a "la respuesta correcta": converge casi
+exactamente al **valor natural propio del donante** (+2.66 ≈ 2.68; +3.42 ≈ 3.41).
+Este patrón se repitió con precisión similar en las otras 2 oraciones y en Pythia
+70M. Conclusión: el adjetivo sí se usa causalmente, pero lo que transporta no es
+una comparación semántica correcta de tamaño/peso — es una **preferencia fija
+propia de cada palabra adjetivo**, que en la mayoría de los casos empuja en la
+misma dirección tanto para "big" como para "small" (o "slow"/"wide",
+"weak"/"heavy"). Esto explica mecánicamente por qué el acierto natural (Fase 1)
+queda cerca del azar: el adjetivo influye, pero no discrimina bien entre las dos
+variantes. *(Gráfico completo por capa: `outputs/fase6/patching_por_capa.html`,
+no incluido en el repo.)*
+
+### 9.2 Cabeza (0,2) vs. resto de la capa 0
+
+Como el efecto se concentra justo en la capa 0 — la misma de la cabeza con sesgo
+posicional —, se probó si es el mismo mecanismo. Se parchó SOLO la salida
+(`hook_z`) de la cabeza (0,2), dejando el resto de la capa intacta (las demás
+cabezas y el MLP siguen viendo la mezcla real y recalculan con normalidad), y se
+comparó contra el patching del residual completo:
+
+| Modelo | Fracción del efecto de capa 0 explicada por la cabeza (0,2) |
+|---|---|
+| GPT-2 small | ~0% |
+| Pythia 70M | ~9% |
+
+La cabeza (0,2) no explica el efecto del adjetivo — es un mecanismo distinto del
+sesgo posicional hallado por ablation.
+
+### 9.3 Barrido completo: el MLP de la capa 0 domina, pero no siempre limpiamente
+
+Se barrieron una por una las 12 cabezas (GPT-2) / 8 cabezas (Pythia 70M) más el
+MLP de la capa 0, primero en las 3 oraciones ya estudiadas, y después en las 5
+oraciones restantes de la muestra de 8 (para chequear si generaliza):
+
+| Modelo | Muestra | MLP capa 0 | Mejor cabeza individual |
+|---|---|---|---|
+| GPT-2 small | 3 oraciones (6 casos) | 87% | cabeza 3: 9% |
+| GPT-2 small | 5 oraciones (10 casos) | 99% | cabeza 8: 24% |
+| Pythia 70M | 3 oraciones (6 casos) | 67% | cabeza 3: 11% |
+| Pythia 70M | 5 oraciones (10 casos) | 35% (empatada con cabeza 3: 35%) | cabeza 3: 35% |
+
+**En GPT-2 small el hallazgo generaliza de forma robusta**: el MLP de la capa 0
+domina ampliamente en ambas muestras (87% y 99%); ninguna cabeza individual supera
+el 24%.
+
+**En Pythia 70M el hallazgo es menos limpio de lo que parecía con solo 3
+oraciones.** En la muestra original el MLP dominaba (67%); al extender a las 5
+oraciones restantes, una cabeza distinta — capa 0, cabeza 3 (no la cabeza 2 de la
+ablation) — empata con el MLP (35% cada una). Combinando las 8 oraciones
+completas, el MLP explica en promedio ~47% y la cabeza 3 ~26%: el MLP sigue siendo
+el mayor contribuyente individual, pero la dominancia es bastante menos clara que
+en GPT-2 small, y sugiere que en Pythia 70M el mecanismo puede estar más repartido
+entre el MLP y al menos una cabeza adicional, en vez de concentrado en un solo
+componente.
+
+### 9.4 Conclusión de la Fase 6
+
+Quedan identificados y desenredados dos mecanismos causales distintos,
+coexistiendo en la capa 0, ninguno de los dos implementando una resolución
+semántica real de la correferencia:
+
+1. **Cabeza (0,2)** (GPT-2 small y Pythia 70M, hallada por ablation en la Fase 1):
+   sesgo posicional hacia el sujeto de la oración, independiente del adjetivo.
+2. **MLP de la capa 0** (y, en Pythia 70M, también la cabeza (0,3) en un grado
+   comparable): carga la identidad léxica del adjetivo, pero como una preferencia
+   fija por palabra que no discrimina correctamente entre las dos variantes — no
+   una comparación semántica de tamaño/peso.
+
+Esto refuerza, con evidencia causal más fina, la misma conclusión honesta de las
+Fases 1–2: la desconexión entre auto-reporte y mecanismo no es por falta de
+mecanismo — hay al menos dos, verificados causalmente — sino porque ninguno de
+los mecanismos reales implementa lo que una persona describiría como "resolver la
+referencia por significado", y el auto-reporte tampoco los describe.
+
+## 10. Limitaciones
+
+- **Tamaño de muestra chico**: 8 oraciones para el análisis de atención agregada y
+  para el barrido de componentes de la Fase 6; solo 3 (trophy_suitcase, car_truck,
+  man_couch) para la ablation original, el patching por capa, y los
   auto-reportes. Son pocos casos bien mirados, no una muestra estadísticamente
-  representativa.
+  representativa — el propio hallazgo de la Fase 6 (sección 9.3) muestra que
+  ampliar de 3 a 8 oraciones cambió la conclusión para Pythia 70M.
 - **Un solo tipo de tarea**: correferencia ambigua tipo Winograd, con una
   estructura sintáctica similar en las 8 oraciones (sujeto — verbo — objeto, con
-  "the" + sustantivo). No se probó si el sesgo hacia el sujeto se sostiene con
-  otras estructuras sintácticas o tipos de ambigüedad.
-- **Un solo tipo de intervención causal**: zero-ablation de una sola cabeza por
-  vez. No se probó mean-ablation, ni combinaciones de varias cabezas, ni patching
-  entre corridas (activation patching cruzado).
-- **Búsqueda de cabezas no exhaustiva en el cierre**: en Pythia 160M, la cabeza
-  elegida empató con otras tres candidatas que no se llegaron a inspeccionar.
+  "the" + sustantivo). No se probó si el sesgo hacia el sujeto o el efecto del MLP
+  se sostienen con otras estructuras sintácticas o tipos de ambigüedad.
+- **El patching y el desenredado de componentes no se probaron en Pythia 160M**:
+  se limitaron a GPT-2 small y Pythia 70M, los dos modelos donde la ablation de la
+  Fase 1 encontró un mecanismo limpio que extender.
+- **El desenredado cabeza-vs-MLP se hizo solo en la capa 0**: el efecto del
+  residual completo seguía siendo apreciable en las capas 1–3 (sobre todo en
+  Pythia 70M); no se repitió el barrido de componentes en esas capas.
+- **Un solo tipo de ablation/patching**: zero-ablation y patching directo
+  (transplante 1:1 de activaciones). No se probó mean-ablation ni combinaciones de
+  varios componentes a la vez.
+- **Búsqueda de cabezas no exhaustiva en el cierre de la Fase 1**: en Pythia 160M,
+  la cabeza elegida empató con otras tres candidatas que no se llegaron a
+  inspeccionar.
 - **Nada de esto se generaliza más allá de 70–160M parámetros.** No se afirma
   nada sobre cómo funcionan modelos grandes (GPT-4, Claude, etc.), ni sobre "los
   LLMs" en general. Los hallazgos son válidos únicamente para los tres modelos y
