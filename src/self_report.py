@@ -10,21 +10,18 @@ correcta o no.
 from transformer_lens import HookedTransformer
 
 
-def generate_self_report(
+def generate_continuation(
     modelo: HookedTransformer,
-    frase: str,
-    eleccion_del_modelo: str,
+    prompt: str,
     max_tokens_nuevos: int = 25,
     fwd_hooks: list | None = None,
 ) -> str:
-    """Continua `frase + ' It refers to the {eleccion} because'` y devuelve solo lo generado.
+    """Continua `prompt` con generacion determinista y devuelve solo lo generado.
 
-    Generacion determinista (`do_sample=False`) para que el resultado sea
-    reproducible. `fwd_hooks` (opcional) se aplica durante toda la generacion
-    (via `modelo.hooks`, no solo un forward pass), para poder comparar el
+    `fwd_hooks` (opcional) se aplica durante toda la generacion (via
+    `modelo.hooks`, no solo un forward pass), para poder comparar el
     auto-reporte con una cabeza especifica apagada.
     """
-    prompt = f"{frase} It refers to the {eleccion_del_modelo} because"
     tokens = modelo.to_tokens(prompt)
 
     with modelo.hooks(fwd_hooks=fwd_hooks or []):
@@ -38,3 +35,20 @@ def generate_self_report(
 
     texto_completo = modelo.to_string(salida[0])
     return texto_completo[len(prompt):]
+
+
+def generate_self_report(
+    modelo: HookedTransformer,
+    frase: str,
+    eleccion_del_modelo: str,
+    max_tokens_nuevos: int = 25,
+    fwd_hooks: list | None = None,
+) -> str:
+    """Continua `frase + ' It refers to the {eleccion} because'` (candidato forzado).
+
+    Se usa cuando ya se conoce la lista de sustantivos candidatos (los 6 casos
+    con oraciones curadas). Para texto libre sin candidatos conocidos, ver
+    `generate_continuation`.
+    """
+    prompt = f"{frase} It refers to the {eleccion_del_modelo} because"
+    return generate_continuation(modelo, prompt, max_tokens_nuevos, fwd_hooks)

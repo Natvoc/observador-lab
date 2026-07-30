@@ -25,6 +25,15 @@ otro proyecto. Es un laboratorio de experimentos chicos, pensado para correr en
 una máquina local, sin GPU, y para que cualquier persona interesada en
 interpretabilidad pueda levantarlo y explorar sus propias frases.
 
+**Los resultados de los primeros experimentos (Fases 1 y 2) ya están documentados
+en [`RESULTADOS.md`](./RESULTADOS.md)**, incluyendo un hallazgo inesperado: la
+atención promedio no resuelve esta tarea de forma confiable en ninguno de los tres
+modelos, y el mecanismo real (cuando se pudo verificar causalmente, vía ablation)
+resultó ser un sesgo posicional hacia el sujeto de la oración, no una resolución
+semántica del significado. Recomendamos leer ese documento antes de explorar la
+interfaz, para tener el contexto de qué tan lejos llega (y dónde no llega) lo que
+la herramienta puede mostrar.
+
 ## Instalación paso a paso
 
 Estas instrucciones asumen que no tenés experiencia previa con `transformer_lens`
@@ -124,6 +133,14 @@ mostrar, no un error del sistema.
   explicaciones incoherentes** ante frases largas o complejas. Eso no es un bug:
   es, en sí mismo, un resultado que vale la pena observar (el modelo ni siquiera
   resolvió la tarea).
+- **El mapa de atención que muestra la interfaz es un indicio observacional, no
+  una prueba de mecanismo.** Un patrón de atención que "coincide" con la respuesta
+  correcta puede ser un artefacto (attention sink al primer token, cabeza de
+  sintaxis/función) y no la causa real de esa respuesta. Solo se verificó
+  causalmente, vía ablation, para tres oraciones de ejemplo específicas (ver
+  `RESULTADOS.md`). Para cualquier otra frase que escribas, tratá el mapa de
+  atención como un punto de partida para explorar, no como una prueba definitiva
+  de qué "decidió" el modelo.
 
 ## Alcance de los resultados
 
